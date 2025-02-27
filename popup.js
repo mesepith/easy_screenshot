@@ -20,27 +20,34 @@ document.getElementById("selectArea").addEventListener("click", () => {
 });
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.action === "capture_selected_area") {
-    chrome.tabs.captureVisibleTab(null, { format: "png" }, (image) => {
-      if (image) {
-        cropAndDownload(image, message.selection);
-      }
-    });
+  if (message.action === "merge_screenshots") {
+    mergeScreenshots(message.screenshots);
   }
 });
 
-function cropAndDownload(image, selection) {
-  const img = new Image();
-  img.src = image;
-  img.onload = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = selection.width;
-    canvas.height = selection.height;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, selection.x, selection.y, selection.width, selection.height, 0, 0, selection.width, selection.height);
-    
-    downloadImage(canvas.toDataURL("image/png"), "selected_area_screenshot.png");
-  };
+function mergeScreenshots(screenshots) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const width = window.innerWidth;
+  const height = screenshots.reduce((acc, shot) => acc + shot.y, 0);
+  
+  canvas.width = width;
+  canvas.height = height;
+
+  let offsetY = 0;
+  screenshots.forEach((shot) => {
+    const img = new Image();
+    img.src = shot.image;
+    img.onload = () => {
+      ctx.drawImage(img, 0, offsetY);
+      offsetY += img.height;
+
+      if (offsetY >= height) {
+        downloadImage(canvas.toDataURL("image/png"), "full_page_screenshot.png");
+      }
+    };
+  });
 }
 
 function downloadImage(dataUrl, filename) {
