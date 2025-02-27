@@ -1,58 +1,89 @@
 // contentScript.js
 
-let selecting = false;
-let selectionDiv = null;
+let overlay = null;
+let selectionBox = null;
 let startX = 0;
 let startY = 0;
+let isSelecting = false;
 
-const SELECTION_DIV_ID = '__my_custom_selection_div__';
-
-// Listen for the "START_SELECTION" message from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'START_SELECTION') {
-    activateSelectionMode();
+    createOverlay();
   }
 });
 
-function activateSelectionMode() {
-  // Add event listeners to create a selection rectangle on the page
-  document.addEventListener('mousedown', onMouseDown);
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
+/**
+ * Create a full-page overlay and attach mouse events.
+ * This stops the browser from highlighting underlying text.
+ */
+function createOverlay() {
+  // If an overlay already exists, remove it (cleanup).
+  removeOverlay();
 
-  // Optionally, you could add an overlay or instructions...
+  overlay = document.createElement('div');
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '100vw',
+    height: '100vh',
+    zIndex: '999999',
+    backgroundColor: 'transparent',
+    cursor: 'crosshair',
+    userSelect: 'none'        // prevent text selection on overlay
+  });
+
+  // Listen to mouse events on the overlay, not the document
+  overlay.addEventListener('mousedown', onMouseDown);
+  overlay.addEventListener('mousemove', onMouseMove);
+  overlay.addEventListener('mouseup', onMouseUp);
+  overlay.addEventListener('mouseleave', onMouseLeave);
+
+  document.body.appendChild(overlay);
+}
+
+function removeOverlay() {
+  if (overlay) {
+    overlay.remove();
+    overlay = null;
+  }
+  if (selectionBox) {
+    selectionBox.remove();
+    selectionBox = null;
+  }
 }
 
 function onMouseDown(e) {
-  if (e.button !== 0) return; // only left-click
-  selecting = true;
-
+  if (e.button !== 0) return; // Only left click
+  isSelecting = true;
   startX = e.clientX;
   startY = e.clientY;
 
-  // Create a div to represent the selection area
-  if (!selectionDiv) {
-    selectionDiv = document.createElement('div');
-    selectionDiv.id = SELECTION_DIV_ID;
-    Object.assign(selectionDiv.style, {
-      position: 'fixed',
+  // Create or reset selectionBox
+  if (!selectionBox) {
+    selectionBox = document.createElement('div');
+    Object.assign(selectionBox.style, {
+      position: 'absolute',
       border: '2px dashed #333',
       backgroundColor: 'rgba(0, 0, 0, 0.2)',
-      top: startY + 'px',
-      left: startX + 'px',
+      left: `${startX}px`,
+      top: `${startY}px`,
       width: '0px',
-      height: '0px',
-      zIndex: 999999,
-      pointerEvents: 'none'
+      height: '0px'
     });
-    document.body.appendChild(selectionDiv);
+    overlay.appendChild(selectionBox);
   } else {
-    selectionDiv.style.display = 'block';
+    selectionBox.style.display = 'block';
+    selectionBox.style.left = `${startX}px`;
+    selectionBox.style.top = `${startY}px`;
+    selectionBox.style.width = '0px';
+    selectionBox.style.height = '0px';
   }
 }
 
 function onMouseMove(e) {
-  if (!selecting || !selectionDiv) return;
+  if (!isSelecting || !selectionBox) return;
+
   const currentX = e.clientX;
   const currentY = e.clientY;
 
@@ -61,40 +92,32 @@ function onMouseMove(e) {
   const width = Math.abs(currentX - startX);
   const height = Math.abs(currentY - startY);
 
-  selectionDiv.style.left = left + 'px';
-  selectionDiv.style.top = top + 'px';
-  selectionDiv.style.width = width + 'px';
-  selectionDiv.style.height = height + 'px';
+  selectionBox.style.left = left + 'px';
+  selectionBox.style.top = top + 'px';
+  selectionBox.style.width = width + 'px';
+  selectionBox.style.height = height + 'px';
 }
 
 function onMouseUp(e) {
-  if (!selecting) return;
-  selecting = false;
+  if (!isSelecting) return;
+  isSelecting = false;
 
-  // Remove event listeners
-  document.removeEventListener('mousedown', onMouseDown);
-  document.removeEventListener('mousemove', onMouseMove);
-  document.removeEventListener('mouseup', onMouseUp);
+  // Get the final rectangle
+  const rect = selectionBox.getBoundingClientRect();
 
-  // Get final rect
-  const rect = selectionDiv.getBoundingClientRect();
-  
-  // Hide or remove selectionDiv
-  selectionDiv.remove();
-  selectionDiv = null;
+  // Remove overlay to restore normal page interaction
+  removeOverlay();
 
-  // Prepare the crop area in CSS pixels
+  // Prepare the data for cropping
   const cropArea = {
-    x: rect.left,    // relative to the viewport
+    x: rect.left,
     y: rect.top,
     width: rect.width,
     height: rect.height
   };
-
-  // Get the device pixel ratio from the page
   const ratio = window.devicePixelRatio || 1;
 
-  // Send message to background to capture & crop
+  // Request background to capture & crop
   chrome.runtime.sendMessage(
     {
       action: 'CAPTURE_AREA',
@@ -106,9 +129,19 @@ function onMouseUp(e) {
         console.error('Capture error:', response.error);
         return;
       }
-      // Open the captured image in a new tab
-      const url = response.screenshotUrl;
-      chrome.runtime.sendMessage({ action: 'OPEN_IMAGE_TAB', url });
+      // Open the image in a new tab
+      chrome.runtime.sendMessage({
+        action: 'OPEN_IMAGE_TAB',
+        url: response.screenshotUrl
+      });
     }
   );
+}
+
+function onMouseLeave(e) {
+  // If the user drags outside the viewport, cancel selection
+  if (isSelecting) {
+    isSelecting = false;
+    removeOverlay();
+  }
 }
