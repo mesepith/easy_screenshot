@@ -8,12 +8,29 @@
       margin: 0;
       padding: 1em;
       font-family: sans-serif;
+      width: 200px;
     }
-    button {
+    #captureBtn {
+      display: inline-block;
       width: 100%;
-      margin-bottom: 8px;
-      padding: 8px;
+      padding: 12px;
+      text-align: center;
       cursor: pointer;
+      color: #fff;
+      font-weight: bold;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #1abc9c 0%, #3498db 100%);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+      transition: opacity 0.3s ease, transform 0.2s ease;
+    }
+    #captureBtn:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+    #captureBtn:active {
+      transform: translateY(1px);
     }
   </style>
 </head>

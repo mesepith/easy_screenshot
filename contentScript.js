@@ -2,12 +2,10 @@
 
 let overlay = null;
 let selectionBox = null;
+let popover = null;
 let startX = 0;
 let startY = 0;
 let isSelecting = false;
-
-// We'll store the final screenshot dataUrl here (if needed).
-let screenshotDataUrl = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'START_SELECTION') {
@@ -17,25 +15,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 /**
  * Create a full-page overlay that captures all mouse events,
- * so the underlying page doesn't highlight text/images.
+ * preventing the underlying page from highlighting text/images.
  */
 function createOverlay() {
-  removeOverlay(); // remove if already present
+  removeAllUI(); // clean up if there's any leftover UI
 
   overlay = document.createElement('div');
   Object.assign(overlay.style, {
     position: 'fixed',
-    top: '0',
-    left: '0',
+    top: 0,
+    left: 0,
     width: '100vw',
     height: '100vh',
-    zIndex: '999999',
+    zIndex: 999999,
     backgroundColor: 'transparent',
     cursor: 'crosshair',
-    userSelect: 'none' // no text selection on overlay
+    userSelect: 'none'
   });
 
-  // Listen for mouse events *on the overlay* (not the document)
   overlay.addEventListener('mousedown', onMouseDown);
   overlay.addEventListener('mousemove', onMouseMove);
   overlay.addEventListener('mouseup', onMouseUp);
@@ -44,11 +41,15 @@ function createOverlay() {
   document.body.appendChild(overlay);
 }
 
-/** Remove overlay and any selection box or popover. */
-function removeOverlay() {
+/** Removes overlay, selection box, and popover (if any). */
+function removeAllUI() {
   if (overlay) {
     overlay.remove();
     overlay = null;
+  }
+  if (popover) {
+    popover.remove();
+    popover = null;
   }
   if (selectionBox) {
     selectionBox.remove();
@@ -56,37 +57,43 @@ function removeOverlay() {
   }
 }
 
-/** Mouse down: start drawing the selection box. */
+/** Removes only the overlay (mouse capture), but keeps the selection box visible. */
+function removeOverlayOnly() {
+  if (overlay) {
+    overlay.remove();
+    overlay = null;
+  }
+}
+
 function onMouseDown(e) {
-  if (e.button !== 0) return; // Only left-click
+  if (e.button !== 0) return; // only left-click
   isSelecting = true;
   startX = e.clientX;
   startY = e.clientY;
 
-  // Create the selection box if not existing
   if (!selectionBox) {
     selectionBox = document.createElement('div');
     Object.assign(selectionBox.style, {
       position: 'absolute',
-      border: '2px dashed #333',
-      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+      border: '2px dotted #e74c3c', // dotted red border
+      backgroundColor: 'rgba(255, 0, 0, 0.05)', // slight tinted background
       left: `${startX}px`,
       top: `${startY}px`,
       width: '0px',
-      height: '0px'
+      height: '0px',
+      zIndex: 999999
     });
     overlay.appendChild(selectionBox);
   } else {
-    // Reset existing box
-    selectionBox.style.display = 'block';
+    // reset its style
     selectionBox.style.left = `${startX}px`;
     selectionBox.style.top = `${startY}px`;
     selectionBox.style.width = '0px';
     selectionBox.style.height = '0px';
+    selectionBox.style.display = 'block';
   }
 }
 
-/** Mouse move: update selection box dimensions. */
 function onMouseMove(e) {
   if (!isSelecting || !selectionBox) return;
 
@@ -104,23 +111,24 @@ function onMouseMove(e) {
   selectionBox.style.height = height + 'px';
 }
 
-/** Mouse up: finalize selection, capture screenshot, show popover with buttons. */
 function onMouseUp(e) {
   if (!isSelecting) return;
   isSelecting = false;
 
-  // Get final rectangle of the selection box
+  // Get final rectangle
   const rect = selectionBox.getBoundingClientRect();
 
-  // Remove the overlay so the page is interactive again
-  removeOverlay();
+  // Remove only the overlay so page is interactive again,
+  // but keep the selection box visible.
+  removeOverlayOnly();
 
-  // If user just clicked without dragging, or a zero-size selection, do nothing
+  // If the user basically clicked without dragging (zero-size area), do nothing
   if (rect.width === 0 || rect.height === 0) {
+    selectionBox.remove();
+    selectionBox = null;
     return;
   }
 
-  // Prepare cropping data
   const cropArea = {
     x: rect.left,
     y: rect.top,
@@ -129,64 +137,85 @@ function onMouseUp(e) {
   };
   const ratio = window.devicePixelRatio || 1;
 
-  // Request the background to capture & crop
+  // Request background to capture & crop
   chrome.runtime.sendMessage(
     { action: 'CAPTURE_AREA', cropArea, devicePixelRatio: ratio },
-    async (response) => {
+    (response) => {
       if (response.error) {
         console.error('Capture error:', response.error);
         return;
       }
-
-      // We have our screenshot data URL!
-      screenshotDataUrl = response.screenshotUrl;
-
-      // Create a small popover near the selected area with the 3 buttons
+      // Show a nice popover near the selected area
       createPopover({
         x: rect.left,
-        y: rect.top + rect.height + 5, // put it just below the selection
-        dataUrl: screenshotDataUrl
+        y: rect.top + rect.height + 5, // slightly below the selection
+        dataUrl: response.screenshotUrl
       });
     }
   );
 }
 
 function onMouseLeave(e) {
-  // If the user drags outside the viewport, cancel selection
   if (isSelecting) {
     isSelecting = false;
-    removeOverlay();
+    removeOverlayOnly();
   }
 }
 
 /**
- * Creates a small popover with three buttons: Copy, Download, Open in new tab.
- * Positions it near (x, y) in the viewport.
+ * Creates a floating popover with 3 action buttons + Close, styled nicely.
+ * Positions it near the selection rectangle.
  */
 function createPopover({ x, y, dataUrl }) {
-  // A container for the popover
-  const popover = document.createElement('div');
+  // remove any existing popover
+  if (popover) {
+    popover.remove();
+  }
+
+  popover = document.createElement('div');
   Object.assign(popover.style, {
     position: 'fixed',
     left: x + 'px',
     top: y + 'px',
     backgroundColor: '#fff',
-    border: '1px solid #ccc',
+    border: '2px solid #3498db',
+    borderRadius: '8px',
     padding: '8px',
-    zIndex: '999999',
+    fontFamily: 'sans-serif',
     display: 'flex',
     gap: '6px',
     alignItems: 'center',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+    zIndex: 999999
   });
 
-  // 1) Copy Button
-  const copyBtn = document.createElement('button');
-  copyBtn.textContent = 'Copy';
-  copyBtn.style.cursor = 'pointer';
-  copyBtn.addEventListener('click', async () => {
+  // A helper function to create a styled button quickly
+  function createStyledButton(label, onClick) {
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    Object.assign(btn.style, {
+      backgroundColor: '#3498db',
+      color: '#fff',
+      border: 'none',
+      borderRadius: '4px',
+      padding: '6px 10px',
+      cursor: 'pointer',
+      fontSize: '13px',
+      fontFamily: 'inherit'
+    });
+    btn.addEventListener('mouseover', () => {
+      btn.style.opacity = '0.8';
+    });
+    btn.addEventListener('mouseout', () => {
+      btn.style.opacity = '1';
+    });
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  // 1) Copy button
+  const copyBtn = createStyledButton('Copy', async () => {
     try {
-      // Convert dataUrl to blob
       const blob = await (await fetch(dataUrl)).blob();
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob })
@@ -198,44 +227,37 @@ function createPopover({ x, y, dataUrl }) {
     }
   });
 
-  // 2) Download Button
-  const downloadBtn = document.createElement('button');
-  downloadBtn.textContent = 'Download';
-  downloadBtn.style.cursor = 'pointer';
-  downloadBtn.addEventListener('click', () => {
+  // 2) Download button
+  const downloadBtn = createStyledButton('Download', () => {
     const a = document.createElement('a');
     a.href = dataUrl;
     a.download = 'capture.png';
-    // Programmatically click the link
     a.click();
   });
 
-  // 3) Open in New Tab Button
-  const openBtn = document.createElement('button');
-  openBtn.textContent = 'Open in New Tab';
-  openBtn.style.cursor = 'pointer';
-  openBtn.addEventListener('click', () => {
-    // Instead of window.open(dataUrl, '_blank'), which is blocked:
+  // 3) Open in New Tab
+  const openBtn = createStyledButton('Open', () => {
+    // If you're using direct data URL: window.open(dataUrl, '_blank') might be blocked
+    // Instead, use your background-based approach if needed:
     chrome.runtime.sendMessage({ action: 'OPEN_IMAGE_VIEWER', dataUrl });
   });
 
-  // Append buttons
+  // "Close (X)" button
+  const closeBtn = createStyledButton('X', () => {
+    popover.remove();
+  });
+  closeBtn.style.backgroundColor = '#e74c3c'; // red for close
+  closeBtn.style.fontWeight = 'bold';
+  closeBtn.style.padding = '6px 12px';
+
   popover.appendChild(copyBtn);
   popover.appendChild(downloadBtn);
   popover.appendChild(openBtn);
-
-  // Optionally, add a "Close" or "X" button if you want to remove the popover
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'X';
-  closeBtn.style.cursor = 'pointer';
-  closeBtn.addEventListener('click', () => {
-    popover.remove();
-  });
   popover.appendChild(closeBtn);
 
   document.body.appendChild(popover);
 
-  // Adjust popover if it goes off-screen (simple logic)
+  // Ensure popover doesn't go off-screen to the right/bottom
   const popRect = popover.getBoundingClientRect();
   if (popRect.right > window.innerWidth) {
     popover.style.left = (window.innerWidth - popRect.width - 10) + 'px';

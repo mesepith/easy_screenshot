@@ -12,6 +12,6 @@ document.getElementById('captureBtn').addEventListener('click', async () => {
   // 3) Tell the content script to start selection
   chrome.tabs.sendMessage(tab.id, { action: 'START_SELECTION' });
 
-  // 4) Close this popup so user can see the page and overlay right away
+  // 4) Close this popup so user can see the page and overlay
   window.close();
 });
