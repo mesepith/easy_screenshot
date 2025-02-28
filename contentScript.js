@@ -160,10 +160,13 @@ function onMouseUp(e) {
         console.error('Capture error:', response.error);
         return;
       }
+      const pageX = rect.left + window.scrollX;
+      const pageY = rect.top  + window.scrollY;
+
       // Show a nice popover near the selected area
       createPopover({
-        x: rect.left,
-        y: rect.top + rect.height + 5, // slightly below the selection
+        x: pageX,
+        y: pageY + rect.height + 5,
         dataUrl: response.screenshotUrl
       });
     }
@@ -189,7 +192,7 @@ function createPopover({ x, y, dataUrl }) {
 
   popover = document.createElement('div');
   Object.assign(popover.style, {
-    position: 'fixed',
+    position: 'absolute',
     left: x + 'px',
     top: y + 'px',
     backgroundColor: '#fff',
