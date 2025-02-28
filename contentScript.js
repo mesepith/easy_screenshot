@@ -22,7 +22,7 @@ function createOverlay() {
 
   overlay = document.createElement('div');
   Object.assign(overlay.style, {
-    position: 'fixed',
+    position: 'absolute',
     top: 0,
     left: 0,
     width: '100vw',
@@ -32,6 +32,9 @@ function createOverlay() {
     cursor: 'crosshair',
     userSelect: 'none'
   });
+
+  overlay.style.width = document.documentElement.scrollWidth + 'px';
+  overlay.style.height = document.documentElement.scrollHeight + 'px';
 
   overlay.addEventListener('mousedown', onMouseDown);
   overlay.addEventListener('mousemove', onMouseMove);
@@ -60,6 +63,12 @@ function removeAllUI() {
 /** Removes only the overlay (mouse capture), but keeps the selection box visible. */
 function removeOverlayOnly() {
   if (overlay) {
+
+    // If we have a selection box, move it out of the overlay
+    if (selectionBox) {
+      document.body.appendChild(selectionBox);
+    }
+
     overlay.remove();
     overlay = null;
   }
@@ -68,8 +77,8 @@ function removeOverlayOnly() {
 function onMouseDown(e) {
   if (e.button !== 0) return; // only left-click
   isSelecting = true;
-  startX = e.clientX;
-  startY = e.clientY;
+  startX = e.pageX;
+  startY = e.pageY;
 
   if (!selectionBox) {
     selectionBox = document.createElement('div');
@@ -95,10 +104,9 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  if (!isSelecting || !selectionBox) return;
-
-  const currentX = e.clientX;
-  const currentY = e.clientY;
+  if (!isSelecting) return;
+  const currentX = e.pageX;
+  const currentY = e.pageY;
 
   const left = Math.min(startX, currentX);
   const top = Math.min(startY, currentY);
@@ -244,7 +252,16 @@ function createPopover({ x, y, dataUrl }) {
 
   // "Close (X)" button
   const closeBtn = createStyledButton('X', () => {
+
+    // remove popover
     popover.remove();
+    popover = null;
+
+    // remove selection box
+    if (selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
   });
   closeBtn.style.backgroundColor = '#e74c3c'; // red for close
   closeBtn.style.fontWeight = 'bold';
