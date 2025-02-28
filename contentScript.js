@@ -137,6 +137,9 @@ function onMouseUp(e) {
     return;
   }
 
+  // Hide the selection box so it doesn’t appear in the screenshot
+  selectionBox.style.display = 'none';
+
   const cropArea = {
     x: rect.left,
     y: rect.top,
@@ -149,6 +152,10 @@ function onMouseUp(e) {
   chrome.runtime.sendMessage(
     { action: 'CAPTURE_AREA', cropArea, devicePixelRatio: ratio },
     (response) => {
+
+      // Once the screenshot is done, restore the box so the user sees it
+      selectionBox.style.display = 'block';
+      
       if (response.error) {
         console.error('Capture error:', response.error);
         return;
