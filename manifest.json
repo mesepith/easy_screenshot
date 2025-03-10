@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Simple Screenshot",
+  "name": "Easy Screenshot",
   "version": "1.0",
   "description": "Take screenshots of your browser tab",
   "permissions": [
